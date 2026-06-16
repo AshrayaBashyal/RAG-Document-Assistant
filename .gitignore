@@ -1,0 +1,31 @@
+# Environments and Secrets
+.env
+*.env
+.venv/
+env/
+venv/
+ENV/
+
+# Django files
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
