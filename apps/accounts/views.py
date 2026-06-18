@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema 
 
 from .serializers import RegisterSerializer, UserSerializer, LoginSerializer
 
@@ -14,6 +15,7 @@ class RegisterView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(request=RegisterSerializer)
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
 
@@ -37,6 +39,7 @@ class LoginView(APIView):
     
     permission_classes = [AllowAny]
 
+    @extend_schema(request=LoginSerializer)
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -72,6 +75,7 @@ class ProfileView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(request=UserSerializer)
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
