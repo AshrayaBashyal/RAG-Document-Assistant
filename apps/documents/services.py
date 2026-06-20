@@ -60,3 +60,27 @@ def process_document(document):
         document.error_message = str(exc)
         document.save(update_fields=['status', 'error_message'])
         raise
+    
+
+def _download_pdf(url: str, doc_id: int) -> str:
+    """Downloads a PDF via streaming so large files are never fully loaded into RAM, validates its %PDF header, and saves it to media/pdfs/, returning the absolute file path."""    
+    
+    save_dir = os.path.join(settings.MEDIA_ROOT, 'pdfs')
+    os.makedirs(save_dir, exist_ok=True)
+    path = os.path.join(save_dir, f"doc_{doc_id}_{uuid.uuid4().hex[:6]}.pdf")
+
+    response = requests.get(url, stream=True, timeout=60,
+                            headers={'User-Agent': 'RAGBot/1.0'})
+    response.raise_for_status()
+
+    with open(path, 'wb') as f:
+        for chunk in response.iter_content(8192):
+            f.write(chunk)
+
+    # Reject anything that isn't really a PDF
+    with open(path, 'rb') as f:
+        if f.read(4) != b'%PDF':
+            os.remove(path)
+            raise ValueError("URL did not return a valid PDF file.")
+
+    return path     
