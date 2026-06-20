@@ -62,6 +62,7 @@ def process_document(document):
         raise
     
 
+# DOWNLOAD
 def _download_pdf(url: str, doc_id: int) -> str:
     """Downloads a PDF via streaming so large files are never fully loaded into RAM, validates its %PDF header, and saves it to media/pdfs/, returning the absolute file path."""    
     
@@ -84,3 +85,39 @@ def _download_pdf(url: str, doc_id: int) -> str:
             raise ValueError("URL did not return a valid PDF file.")
 
     return path     
+
+
+# EXTRACT
+def _extract_text(file_path: str) -> list[dict]:
+    """
+    Extracts and cleans plain text page-by-page using PyMuPDF.
+    Returns a list of {'page': int, 'text': str} dicts.
+    Cleans text by collapsing whitespace, stripping stray page numbers,
+    and fixing hyphen line-breaks (e.g., "implemen-\ntion" -> "implementation").
+    """
+ 
+    doc   = pymupdf.open(file_path)
+    pages = []
+
+    for i, page in enumerate(doc):
+        raw = page.get_text("text")
+        text = _clean(raw)
+        if text.strip():
+            pages.append({'page': i + 1, 'text': text})
+
+    doc.close()
+
+    if not pages:
+        raise ValueError("Could not extract any text. The PDF may be scanned/image-based.")
+
+    return pages
+
+
+def _clean(text: str) -> str:
+    text = re.sub(r'(\w+)-\n(\w+)', r'\1\2', text)   # fix hyphen breaks
+    # Removed to prevent NUMERICAL DATA loss in numeric/finance docs
+    # text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)  # lone page numbers 
+    text = re.sub(r'[ \t]+', ' ', text)               # collapse spaces
+    text = re.sub(r'\n{3,}', '\n\n', text)            # max 2 blank lines
+    return text.strip()
+
