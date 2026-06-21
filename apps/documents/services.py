@@ -121,3 +121,37 @@ def _clean(text: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)            # max 2 blank lines
     return text.strip()
 
+
+# CHUNKING
+def _chunk_pages(pages: list[dict],
+                 chunk_size: int = 1000,
+                 overlap: int = 200) -> list[dict]:
+    """
+    Splits each page's text into overlapping fixed-size character windows.
+
+    chunk_size = how many characters per chunk  (~150-200 words)
+    overlap    = how many characters re-used between consecutive chunks
+                 (prevents context being lost at a boundary)
+
+    Returns list of {'page': int, 'text': str}.
+    """
+
+    chunks = []
+
+    for page in pages:
+        text  = page['text']
+        start = 0
+
+        while start < len(text):
+                                                                        
+            end        = min(start + chunk_size, len(text))       
+            chunk_text = text[start:end].strip()     # To PREVENT WORDS FRM BEING CUT IN HALF, search backward from the end of your 1000-character window to find the closest blank space.
+
+            if chunk_text:
+                chunks.append({'page': page['page'], 'text': chunk_text})
+
+            if end == len(text):
+                break
+            start = end - overlap   # step back by overlap for next window
+
+    return chunks
