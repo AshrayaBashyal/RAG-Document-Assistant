@@ -155,3 +155,43 @@ def _chunk_pages(pages: list[dict],
             start = end - overlap   # step back by overlap for next window
 
     return chunks
+
+
+# EMBED + STORE
+def _embed_and_store(doc_id: int, chunks: list[dict]) -> str:
+    """
+    Generates an embedding vector for every chunk and upserts them into Pinecone.
+
+    Each document gets its own Pinecone *namespace* so searches stay isolated.
+    The vector id encodes both document id and chunk position for easy debugging.
+
+    Returns the namespace string (stored on the Document record).
+    """
+    namespace = f"doc_{doc_id}_{uuid.uuid4().hex[:6]}"
+    texts     = [c['text'] for c in chunks]
+
+    # Batch encode — much faster than one at a time
+    vectors = _embedder.encode(texts, normalize_embeddings=True, batch_size=32)
+
+    index = Pinecone(api_key=settings.PINECONE_API_KEY).Index(settings.PINECONE_INDEX_NAME)
+
+    # Pinecone upsert expects list of (id, vector, metadata)
+    to_upsert = [
+        {
+            'id':       f"doc_{doc_id}_chunk_{i}",
+            'values':   vec.tolist(),
+            'metadata': {
+                'doc_id':      doc_id,
+                'chunk_index': i,
+                'page':        chunks[i]['page'],
+                'preview':     chunks[i]['text'][:200],
+            }
+        }
+        for i, vec in enumerate(vectors)
+    ]
+
+    # Upsert in batches of 100 (Pinecone recommended limit per request)
+    for i in range(0, len(to_upsert), 100):
+        index.upsert(vectors=to_upsert[i:i+100], namespace=namespace)
+
+    return namespace
