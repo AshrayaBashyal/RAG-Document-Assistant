@@ -23,6 +23,21 @@ from django.conf import settings
 # Embedding model (loaded once at import time) 
 _embedder = SentenceTransformer('all-MiniLM-L6-v2')  
 
+# To only load it when actually generating embeddings. This avoids:slow migrations, slow startup, model loading during tests, unnecessary memory usage
+
+# _embedding_model = None
+
+# def get_embedding_model():
+#     global _embedding_model
+
+#     if _embedding_model is None:
+#         _embedding_model = SentenceTransformer(
+#             "all-MiniLM-L6-v2"
+#         )
+
+#     return _embedding_model
+# then -----> embeddings = model.encode(texts) <-----
+
 # PUBLIC ENTRY POINT
 def process_document(document):
     "Runs document pipeline, updates status, and saves errors_msg on failure."
@@ -113,7 +128,7 @@ def _extract_text(file_path: str) -> list[dict]:
     return pages
 
 
-def _clean(text: str) -> str:
+def _clean(text: str) -> str:         # OTHER ADDITIONAL METHODS MAY ALSO NEED TO BE APPLIED
     text = re.sub(r'(\w+)-\n(\w+)', r'\1\2', text)   # fix hyphen breaks
     # Removed to prevent NUMERICAL DATA loss in numeric/finance docs
     # text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)  # lone page numbers 
