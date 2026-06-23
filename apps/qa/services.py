@@ -55,3 +55,42 @@ def answer_question(question: str, document, history: list[dict]) -> dict:
     return {'answer': answer, 'source_chunks': source_chunks}
 
 
+# 1 — EMBED QUERY
+def _embed_query(question: str) -> list[float]:
+    """
+    Converts the question into a vector using the same model used at index time.
+    Using a different model here than during indexing would produce garbage results.
+    """
+    return _embedder.encode(question, normalize_embeddings=True).tolist()
+
+
+# 2 — VECTOR SEARCH
+def _search_pinecone(query_vec: list[float], namespace: str, top_k: int = 5):
+    """
+    Queries Pinecone for the top_k vectors most similar to query_vec.
+    Restricts search to the document's own namespace so results stay relevant.
+    Returns Pinecone match objects (each has .score and .metadata).
+    """
+    index = Pinecone(api_key=settings.PINECONE_API_KEY).Index(settings.PINECONE_INDEX_NAME)
+    result = index.query(
+        vector=query_vec,
+        top_k=top_k,
+        namespace=namespace,
+        include_metadata=True,
+    )
+    # Filter out low-confidence matches (below 0.3 cosine similarity)
+    return [m for m in result.matches if m.score >= 0.3]
+
+
+# 3 — FETCH CHUNK TEXT
+def _fetch_chunks(doc_id: int, matches) -> list[str]:
+    """
+    Pinecone only stores metadata + vectors, not the full text.
+    We use chunk_index from the metadata to look up the full text in Django's DB.
+    """
+    indices = [m.metadata['chunk_index'] for m in matches]
+    chunks  = DocumentChunk.objects.filter(document_id=doc_id, chunk_index__in=indices)
+    index_to_text = {c.chunk_index: c.text for c in chunks}
+    # Return in the same order as matches (highest score first)
+    return [index_to_text.get(m.metadata['chunk_index'], '') for m in matches]
+
