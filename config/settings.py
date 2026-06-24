@@ -114,7 +114,7 @@ SPECTACULAR_SETTINGS = {
 # External API keys 
 PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
 PINECONE_INDEX_NAME = os.getenv('PINECONE_INDEX_NAME', 'rag-documents')
-GROK_API_KEY = os.getenv('GROK_API_KEY')
+GROQ_API_KEY = os.getenv('GROK_API_KEY')
 
 
 # Localization and Regional Settings

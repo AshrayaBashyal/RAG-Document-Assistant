@@ -22,7 +22,7 @@ class AskSerializer(serializers.Serializer):
     conversation_id = serializers.IntegerField(required=False, allow_null=True)
 
 
-class AnswerSerializer(serializers.Serializer):
-    answer          = serializers.CharField()
-    conversation_id = serializers.IntegerField()
-    source_chunks   = serializers.ListField()
+# class AnswerSerializer(serializers.Serializer):
+#     answer          = serializers.CharField()
+#     conversation_id = serializers.IntegerField()
+#     source_chunks   = serializers.ListField()

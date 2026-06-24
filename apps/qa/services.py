@@ -16,7 +16,7 @@ from groq import Groq
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 from django.conf import settings
-from documents.models import DocumentChunk
+from apps.documents.models import DocumentChunk
 
 
 # --- PERSISTENT CLIENT POOLING ---
