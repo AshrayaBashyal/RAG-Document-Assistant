@@ -19,7 +19,16 @@ from django.conf import settings
 from documents.models import DocumentChunk
 
 
+# --- PERSISTENT CLIENT POOLING ---
+# Instantiating these at the module level reuses underlying connection pools,
+# avoiding costly cryptographic handshakes on every single query.
 _embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+_pinecone_client = Pinecone(api_key=settings.PINECONE_API_KEY)
+_vector_index = _pinecone_client.Index(settings.PINECONE_INDEX_NAME)
+
+_groq_client = Groq(api_key=settings.GROQ_API_KEY)
+
 
 # PUBLIC ENTRY POINT
 def answer_question(question: str, document, history: list[dict]) -> dict:
@@ -75,8 +84,7 @@ def _search_pinecone(query_vec: list[float], namespace: str, top_k: int = 5):
     Restricts search to the document's own namespace so results stay relevant.
     Returns Pinecone match objects (each has .score and .metadata).
     """
-    index = Pinecone(api_key=settings.PINECONE_API_KEY).Index(settings.PINECONE_INDEX_NAME)
-    result = index.query(
+    result = _vector_index.query(
         vector=query_vec,
         top_k=top_k,
         namespace=namespace,
@@ -140,10 +148,9 @@ def _call_llm(system: str, user_msg: str):
     Sends the prompt payload to Groq and yields text chunks as they arrive.
     Uses GROK_API_KEY from environment or settings file.
     """    
-    client = Groq(api_key=settings.GROK_API_KEY)
     
     # Using llama-3.3-70b-versatile as a highly efficient default for RAG context
-    response_stream = client.chat.completions.create(
+    response_stream = _groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": system},
@@ -153,7 +160,9 @@ def _call_llm(system: str, user_msg: str):
     )
     
     for chunk in response_stream:
-        # Extract the content delta text safely
-        content = chunk.choices[0].delta.content
-        if content:
-            yield content
+        # Use structural protection against broken chunks or blank finish_reasons
+        if chunk.choices and chunk.choices[0].delta:
+            # Extract the content delta text safely
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
