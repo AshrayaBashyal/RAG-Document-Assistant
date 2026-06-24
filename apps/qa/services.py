@@ -1,3 +1,4 @@
+# print(__doc__)
 """
 RAG Query Pipeline
 
@@ -9,6 +10,8 @@ answer_question(question, document, history) → str
   4. build_prompt   — assemble context + history + question
   5. call_llm       — send to Claude and return the answer
 """
+
+
 
 # import anthropic/ grok/ gemini ???
 from sentence_transformers import SentenceTransformer
@@ -90,7 +93,66 @@ def _fetch_chunks(doc_id: int, matches) -> list[str]:
     """
     indices = [m.metadata['chunk_index'] for m in matches]
     chunks  = DocumentChunk.objects.filter(document_id=doc_id, chunk_index__in=indices)
-    index_to_text = {c.chunk_index: c.text for c in chunks}
+    index_to_text = {c.chunk_index: c.text for c in chunks}      # { 5: "AI is...", 8: "Machine learning...", ...}
     # Return in the same order as matches (highest score first)
     return [index_to_text.get(m.metadata['chunk_index'], '') for m in matches]
 
+
+# 4 — BUILD PROMPT
+def _build_prompt(question: str, chunks: list[str],
+                  history: list[dict]) -> tuple[str, str]:
+    """
+    Assembles the final prompt sent to the LLM.
+
+    System prompt: constrains the model to only use provided context.
+    User message:  context blocks + optional prior conversation + question.
+    """
+    system = (
+        "You are a helpful assistant that answers questions about a document.\n"
+        "Rules:\n"
+        "1. Answer using ONLY the context excerpts provided below.\n"
+        "2. If the context does not contain enough information, say so clearly.\n"
+        "3. Cite the source number (e.g. [Source 2]) when you use a specific excerpt.\n"
+        "4. Be concise."
+    )
+
+    context_block = "\n\n".join(
+        f"[Source {i+1}]\n{text}" for i, text in enumerate(chunks) if text
+    )
+
+    history_block = ""
+    if history:
+        lines = [
+            f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}"
+            for m in history[-6:]   # last 3 exchanges
+        ]
+        history_block = "\nPrevious conversation:\n" + "\n".join(lines) + "\n"
+
+    user_msg = f"Context:\n{context_block}\n{history_block}\nQuestion: {question}"
+
+    return system, user_msg
+
+
+# 5 — CALL LLM (GROQ STREAMING)
+def _call_llm(system: str, user_msg: str):
+    """
+    Sends the prompt payload to Groq and yields text chunks as they arrive.
+    Uses GROK_API_KEY from environment or settings file.
+    """    
+    client = Groq(api_key=settings.GROK_API_KEY)
+    
+    # Using llama-3.3-70b-versatile as a highly efficient default for RAG context
+    response_stream = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg}
+        ],
+        stream=True,
+    )
+    
+    for chunk in response_stream:
+        # Extract the content delta text safely
+        content = chunk.choices[0].delta.content
+        if content:
+            yield content
