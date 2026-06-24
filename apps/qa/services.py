@@ -8,12 +8,11 @@ answer_question(question, document, history) → str
   2. search_pinecone — find the top-k most similar chunks
   3. fetch_chunks   — load full text from Django DB
   4. build_prompt   — assemble context + history + question
-  5. call_llm       — send to Claude and return the answer
+  5. call_llm       — stream response from Groq
 """
 
 
-
-# import anthropic/ grok/ gemini ???
+from groq import Groq
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 from django.conf import settings
@@ -25,9 +24,9 @@ _embedder = SentenceTransformer('all-MiniLM-L6-v2')
 # PUBLIC ENTRY POINT
 def answer_question(question: str, document, history: list[dict]) -> dict:
     """
-    Full query pipeline. Returns:
+    Full query pipeline modified for streaming. Returns:
         {
-          'answer':       str,
+          'answer_stream':  generator (yields str chunks),
           'source_chunks': [ {chunk_index, page_number, score, preview} ]
         }
     """
@@ -35,15 +34,18 @@ def answer_question(question: str, document, history: list[dict]) -> dict:
     query_vec = _embed_query(question)
     matches   = _search_pinecone(query_vec, document.pinecone_namespace)
 
-    if not matches:
+    if not matches:       # to stream fallback response
+        def _fallback_stream():
+            yield "I couldn't find relevant information in this document for your question."
+        
         return {
-            'answer': "I couldn't find relevant information in this document for your question.",
+            'answer_stream': _fallback_stream(),
             'source_chunks': [],
         }
     
     chunks       = _fetch_chunks(document.id, matches)
     system, user = _build_prompt(question, chunks, history)
-    answer       = _call_llm(system, user)
+    answer_stream       = _call_llm(system, user)
 
     source_chunks = [
         {
@@ -55,8 +57,7 @@ def answer_question(question: str, document, history: list[dict]) -> dict:
         for m in matches
     ]
 
-    return {'answer': answer, 'source_chunks': source_chunks}
-
+    return {'answer_stream': answer_stream, 'source_chunks': source_chunks}
 
 # 1 — EMBED QUERY
 def _embed_query(question: str) -> list[float]:
