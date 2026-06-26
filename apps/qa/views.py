@@ -112,5 +112,35 @@ class AskView(APIView):
         return response
     
 
-   
-   
+class ConversationListView(APIView):
+    """List all conversations, optionally filtered by document."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ConversationSerializer(many=True)},
+        summary="List conversations",
+        tags=["Q&A"],
+    )
+    def get(self, request):
+        qs = Conversation.objects.filter(user=request.user)
+        doc_id = request.query_params.get('document_id')
+        if doc_id:
+            qs = qs.filter(document_id=doc_id)
+        return Response(ConversationSerializer(qs, many=True).data)
+
+
+class ConversationDetailView(APIView):
+    """Retrieve a full conversation with all messages."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: ConversationSerializer},
+        summary="Conversation detail",
+        tags=["Q&A"],
+    )
+    def get(self, request, pk):
+        try:
+            conv = Conversation.objects.get(pk=pk, user=request.user)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ConversationSerializer(conv).data)
