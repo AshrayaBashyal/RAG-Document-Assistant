@@ -20,23 +20,17 @@ from pinecone import Pinecone
 from django.conf import settings
 
 
-# Embedding model (loaded once at import time) 
-_embedder = SentenceTransformer('all-MiniLM-L6-v2')  
+# Thread-safe global variable for lazy loading
+_embedding_model = None
 
 # To only load it when actually generating embeddings. This avoids:slow migrations, slow startup, model loading during tests, unnecessary memory usage
+def get_embedding_model() -> SentenceTransformer:
+    """Lazy loads the embedding model to optimize startup time and memory footprint."""
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _embedding_model
 
-# _embedding_model = None
-
-# def get_embedding_model():
-#     global _embedding_model
-
-#     if _embedding_model is None:
-#         _embedding_model = SentenceTransformer(
-#             "all-MiniLM-L6-v2"
-#         )
-
-#     return _embedding_model
-# then -----> embeddings = model.encode(texts) <-----
 
 # PUBLIC ENTRY POINT
 def process_document(document):
@@ -185,8 +179,11 @@ def _embed_and_store(doc_id: int, chunks: list[dict]) -> str:
     namespace = f"doc_{doc_id}_{uuid.uuid4().hex[:6]}"
     texts     = [c['text'] for c in chunks]
 
+    # Call the lazy-loaded model 
+    model = get_embedding_model()
+
     # Batch encode — much faster than one at a time
-    vectors = _embedder.encode(texts, normalize_embeddings=True, batch_size=32)
+    vectors = model.encode(texts, normalize_embeddings=True, batch_size=32)
 
     index = Pinecone(api_key=settings.PINECONE_API_KEY).Index(settings.PINECONE_INDEX_NAME)
 
