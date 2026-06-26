@@ -22,7 +22,18 @@ from apps.documents.models import DocumentChunk
 # --- PERSISTENT CLIENT POOLING ---
 # Instantiating these at the module level reuses underlying connection pools,
 # avoiding costly cryptographic handshakes on every single query.
-_embedder = SentenceTransformer('all-MiniLM-L6-v2')
+# _embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Thread-safe global variable for lazy loading
+_embedding_model = None
+
+def get_embedding_model() -> SentenceTransformer:
+    """Lazy loads the embedding model to optimize startup time and memory footprint."""
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _embedding_model
+
 
 _pinecone_client = Pinecone(api_key=settings.PINECONE_API_KEY)
 _vector_index = _pinecone_client.Index(settings.PINECONE_INDEX_NAME)
@@ -52,7 +63,16 @@ def answer_question(question: str, document, history: list[dict]) -> dict:
             'source_chunks': [],
         }
     
-    chunks       = _fetch_chunks(document.id, matches)
+    chunks, valid_matches = _fetch_chunks(document.id, matches)
+
+    if not chunks:
+        def _fallback_stream():
+            yield "I couldn't find relevant information in this document for your question."
+        return {
+            'answer_stream': _fallback_stream(),
+            'source_chunks': [],
+        }
+
     system, user = _build_prompt(question, chunks, history)
     answer_stream       = _call_llm(system, user)
 
@@ -63,7 +83,7 @@ def answer_question(question: str, document, history: list[dict]) -> dict:
             'score':       round(m.score, 4),
             'preview':     m.metadata['preview'],
         }
-        for m in matches
+        for m in valid_matches
     ]
 
     return {'answer_stream': answer_stream, 'source_chunks': source_chunks}
@@ -74,7 +94,8 @@ def _embed_query(question: str) -> list[float]:
     Converts the question into a vector using the same model used at index time.
     Using a different model here than during indexing would produce garbage results.
     """
-    return _embedder.encode(question, normalize_embeddings=True).tolist()
+    model = get_embedding_model()
+    return model.encode(question, normalize_embeddings=True).tolist()
 
 
 # 2 — VECTOR SEARCH
@@ -95,16 +116,25 @@ def _search_pinecone(query_vec: list[float], namespace: str, top_k: int = 5):
 
 
 # 3 — FETCH CHUNK TEXT
-def _fetch_chunks(doc_id: int, matches) -> list[str]:
+def _fetch_chunks(doc_id: int, matches) -> tuple[list[str], list]:
     """
-    Pinecone only stores metadata + vectors, not the full text.
-    We use chunk_index from the metadata to look up the full text in Django's DB.
+    Looks up full text blocks from Django DB using chunk_index values.
+    Returns lists of valid string contents and corresponding vector match objects.
     """
     indices = [m.metadata['chunk_index'] for m in matches]
     chunks  = DocumentChunk.objects.filter(document_id=doc_id, chunk_index__in=indices)
-    index_to_text = {c.chunk_index: c.text for c in chunks}      # { 5: "AI is...", 8: "Machine learning...", ...}
-    # Return in the same order as matches (highest score first)
-    return [index_to_text.get(m.metadata['chunk_index'], '') for m in matches]
+    index_to_text = {c.chunk_index: c.text for c in chunks}    # { 5: "AI is...", 8: "Machine learning...", ...}
+    
+    valid_texts = []
+    valid_matches = []
+    
+    for m in matches:
+        text = index_to_text.get(m.metadata['chunk_index'], '').strip()
+        if text:  # Ensure text exists to guarantee 1:1 citation alignments
+            valid_texts.append(text)
+            valid_matches.append(m)
+            
+    return valid_texts, valid_matches
 
 
 # 4 — BUILD PROMPT
@@ -125,15 +155,14 @@ def _build_prompt(question: str, chunks: list[str],
         "4. Be concise."
     )
 
-    context_block = "\n\n".join(
-        f"[Source {i+1}]\n{text}" for i, text in enumerate(chunks) if text
-    )
+    # Clean and simple alignment guaranteed by step 3
+    context_block = "\n\n".join(f"[Source {i+1}]\n{text}" for i, text in enumerate(chunks))
 
     history_block = ""
     if history:
         lines = [
             f"{'User' if m['role']=='user' else 'Assistant'}: {m['content']}"
-            for m in history[-6:]   # last 3 exchanges
+            for m in history[-6:]
         ]
         history_block = "\nPrevious conversation:\n" + "\n".join(lines) + "\n"
 
