@@ -34,17 +34,15 @@ class AskView(APIView):
         try:
             document = Document.objects.get(pk=data['document_id'], user=request.user)
         except Document.DoesNotExist:
-            return StreamingHttpResponse(
-                [json.dumps({'error': 'Document not found'})], 
-                status=status.HTTP_404_NOT_FOUND, 
-                content_type="application/json"
+            return Response(
+                {'error': 'Document not found'}, 
+                status=status.HTTP_404_NOT_FOUND
             )
 
         if document.status != 'ready':
-            return StreamingHttpResponse(
-                [json.dumps({'error': f"Document is not ready (status: {document.status})"})], 
-                status=status.HTTP_400_BAD_REQUEST, 
-                content_type="application/json"
+            return Response(
+                {'error': f"Document is not ready (status: {document.status})"}, 
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # Get or create conversation 
@@ -53,10 +51,9 @@ class AskView(APIView):
             try:
                 conversation = Conversation.objects.get(pk=conv_id, user=request.user)
             except Conversation.DoesNotExist:
-                return StreamingHttpResponse(
-                    [json.dumps({'error': 'Conversation not found'})], 
-                    status=status.HTTP_404_NOT_FOUND,  
-                    content_type="application/json"
+                return Response(
+                    {'error': 'Conversation not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
                 )
         else:
             conversation = Conversation.objects.create(
@@ -115,4 +112,5 @@ class AskView(APIView):
         return response
     
 
+   
    
